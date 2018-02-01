@@ -10,7 +10,9 @@ int main()
     lol.startListening();
 }
 
-void * fagt(void * arg)
+void * fagt(void * connectionInfoStruct)
 {
-    std::cout << "AGAFAFS";
+    struct connectionInfoStruct * lel = connectionInfoStruct;
+    write(lel, "hello", 5, 0);
+
 }

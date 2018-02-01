@@ -3,9 +3,17 @@
 #include <netinet/in.h>
 #include <sys/types.h>
 #include <string.h>
+#include <malloc.h>
 #include <pthread.h>
 
 #define DEFAULT_PORT 8000
+
+struct connectionInfo
+{
+    int * sock;
+    struct sockaddr_in ipInfo;
+};
+
 class ServerSocket
 {
 private:
@@ -14,24 +22,47 @@ private:
         enum{NOT_CONNECTED = -1,
             CONNECTED,
             DISCONNECTED,
-            LISTENING} connectionStatus = NOT_CONNECTED;
+            LISTENING} Status = NOT_CONNECTED;
     }status;
     int listenerSocket;
-    int acceptorSocket;
     int serverPort = 8000;
     struct sockaddr_in listenerSocketInfo;
     struct sockaddr_in remoteSocketInfo;
-    pthread_t threadId_listenerSocket;
-    pthread_attr_t threadAttr_listenerSocket;
+    pthread_t threadId_listenerRoutine;
+    pthread_attr_t threadAttr_listenerRoutine;
+    void * routine_listener(void * arg);
+    void * (*routine_connectCallback)(void * connectionInfoStruct);
 public:
     ServerSocket(int port = DEFAULT_PORT);
-    typedef void *(*connectCallback)(void * arg);
+    typedef void *(*connectCallback)(void * connectionInfoStruct);
     void registerConnectCallback(connectCallback cb);
-    void * (*routine_listenerSocket)(void * arg);
     int getPort();
     int getStatus();
     void startListening();
 };
+
+void * ServerSocket::routine_listener(void * arg)
+{
+    int * sock = (int *)arg;
+    while(1)
+    {
+        int * acceptorSocket = new int;
+        listen(*sock, 10);
+        struct connectionInfo * tempConnectionInfo = new struct connectionInfo;
+        *acceptorSocket = accept(*sock,
+                                (struct sockaddr*)&tempConnectionInfo->ipInfo,
+                                (socklen_t)sizeof(struct sockaddr));
+        pthread_t * newThreadId = new pthread_t;
+        pthread_attr_t * newThreadAttr = new pthread_attr_t;
+        pthread_attr_init(newThreadAttr);
+        pthread_create(newThreadId,
+                       newThreadAttr,
+                       routine_connectCallback,
+                       tempConnectionInfo);
+        pthread_join(*newThreadId,
+                     NULL);
+    }
+}
 
 ServerSocket::ServerSocket(int port)
 {
@@ -45,6 +76,11 @@ ServerSocket::ServerSocket(int port)
          sizeof(listenerSocketInfo));
 }
 
+void ServerSocket::registerConnectCallback(connectCallback cb)
+{
+    routine_connectCallback = cb;
+}
+
 int ServerSocket::getPort()
 {
     return serverPort;
@@ -52,21 +88,16 @@ int ServerSocket::getPort()
 
 int ServerSocket::getStatus()
 {
-    return status.connectionStatus;
-}
-
-void ServerSocket::registerConnectCallback(connectCallback cb)
-{
-    routine_listenerSocket = cb;
+    return status.Status;
 }
 
 void ServerSocket::startListening()
 {
-    pthread_attr_init(&threadAttr_listenerSocket);
-    pthread_create(&threadId_listenerSocket,
-                   &threadAttr_listenerSocket,
-                   routine_listenerSocket,
+    pthread_attr_init(&threadAttr_listenerRoutine);
+    pthread_create(&threadId_listenerRoutine,
+                   &threadAttr_listenerRoutine,
+                   routine_listener,
                    &acceptorSocket);
-    pthread_join(threadId_listenerSocket,
+    pthread_join(threadId_listenerRoutine,
                  NULL);
 }
